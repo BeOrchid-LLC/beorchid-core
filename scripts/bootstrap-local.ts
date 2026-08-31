@@ -10,6 +10,7 @@
  * deploy time using per-environment credentials from Infisical. This script is
  * never run there, and refuses to run outside development.
  */
+import '../src/load-env.ts';
 import pg from 'pg';
 
 if (process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {

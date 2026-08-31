@@ -11,6 +11,7 @@
  *
  *   npx tsx scripts/connect-app.ts <app-key> "<Display Name>"
  */
+import '../src/load-env.ts';
 import pg from 'pg';
 
 const APP_KEY_PATTERN = /^[a-z][a-z0-9_]{1,30}$/;
