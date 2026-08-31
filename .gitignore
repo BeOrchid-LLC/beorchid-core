@@ -1,26 +1,7 @@
-# ── Dependencies ────────────────────────────────────────────────
 node_modules/
-
-# ── Secrets ─────────────────────────────────────────────────────
-# All secrets live in Infisical, scoped per environment (Section 12).
-# Nothing in this repository, ever.
+dist/
 .env
 .env.*
 !.env.example
-
-# ── Build output ────────────────────────────────────────────────
-dist/
-build/
-.next/
-.expo/
-
-# ── Logs and local state ────────────────────────────────────────
 *.log
-npm-debug.log*
-coverage/
-
-# ── OS / editor ─────────────────────────────────────────────────
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/
