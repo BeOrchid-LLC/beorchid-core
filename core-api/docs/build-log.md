@@ -1,0 +1,478 @@
+# Build log — Milestone 2, first slice
+
+**Core schema, resolution safeguards, least-privilege grants**
+
+| | |
+|---|---|
+| Date | 2026-08-27 |
+| Repository | `beorchid-core` (monorepo) |
+| Commits | `f38643d`, `991013f` |
+| Tests | 24 / 24 passing |
+| Database objects | 10 tables, 2 views |
+| Source | ~3,300 lines across 34 tracked files |
+
+Written against *BeOrchid Core — System 1: Identity + Central Database,
+Architecture Document & Technology Recommendations*, prepared by Muhammad
+Junaid, approved 27 August 2026. Section references throughout point to that
+document.
+
+Formatted version: <https://claude.ai/code/artifact/92734724-58dc-4206-90e4-cb6eb98385ab>
+
+---
+
+## Contents
+
+1. [Where Milestone 2 stands](#1-where-milestone-2-stands-16)
+2. [How this was approached](#2-how-this-was-approached)
+3. [What was built](#3-what-was-built)
+4. [Why tables are generated and views are not](#4-why-tables-are-generated-and-views-are-not)
+5. [The hard part: making §5.2 enforceable](#5-the-hard-part-making-52-enforceable)
+6. [A defect in the approved DDL](#6-a-defect-in-the-approved-ddl-52)
+7. [How the tests are built](#7-how-the-tests-are-built)
+8. [How things were verified](#8-how-things-were-verified)
+9. [Course corrections during the build](#9-course-corrections-during-the-build)
+10. [Deliberate deviations](#10-deliberate-deviations)
+11. [Changes made to the development machine](#11-changes-made-to-the-development-machine)
+12. [What is not proven](#12-what-is-not-proven)
+13. [Open decisions](#13-open-decisions)
+14. [What comes next](#14-what-comes-next)
+
+---
+
+## 1. Where Milestone 2 stands (§16)
+
+Everything marked done is done **locally**. No Clerk instance, Contabo host, or
+Infisical project exists yet, and those gate the remaining rows.
+
+| Deliverable | State | Gated on |
+|---|---|---|
+| `core` schema live, migrations versioned, both views filtering correctly | **Done** | — |
+| Per-app DB roles — zero access to `core` verified by test | **Done** | — |
+| Access logging | Partial | Table and grants exist; API write path not built |
+| Core API deployed | Not started | Contabo / Coolify |
+| Clerk configured, both environments | Blocked | Clerk instances under BeOrchid ownership |
+| Reference apps (`core-web`, `core-mobile`) | Not started | Core API + SDK |
+| Staging + production, separate and verified | Blocked | Contabo / Coolify, Infisical |
+| Backups, one restore tested and evidenced | Not started | Off-host object storage |
+| Monitoring live and alerting | Not started | Coolify host |
+| "How to Connect a New App" documentation | Partial | Steps 1–3 exist as a working script |
+
+---
+
+## 2. How this was approached
+
+### Read the document first, then extract constraints
+
+The full 1,191 lines were read before any code was written, to pull out three
+things:
+
+- **What is locked.** Clerk, self-hosted PostgreSQL, Infisical and Drizzle Kit
+  are all marked Confirmed (§15.1). These are not open questions and were not
+  reopened.
+- **What is explicitly out of scope.** §15.3 (mobile cross-app sessions) and
+  §15.4 (combined invite plus app-role assignment). Nothing here anticipates
+  them.
+- **What acceptance actually means.** §16's table, which is the definition of
+  done for this milestone.
+
+That framing set the posture for everything after: this is implementing a
+signed-off specification faithfully, and reporting where it is wrong — not
+redesigning it.
+
+### Sequence by dependency, and by what needs nothing external
+
+The database layer went first because it wins on both counts. Everything else
+references it, and it requires no Clerk instance, no VPS, and no secrets
+manager — so roughly the whole first slice could be built and proven before any
+external account exists.
+
+Three further reasons for starting there specifically:
+
+1. **It is where the guarantees live.** §4.1a and §5.2 both argue that the
+   design's promises rest on the database making wrong outcomes impossible
+   rather than on application code being correct. If that layer is right, whole
+   categories of downstream mistake become unmakeable.
+2. **Naming locks on first creation** (§15.2). Migration `0001` is the least
+   reversible artefact in the project.
+3. **It is testable in isolation**, which the HTTP surface is not.
+
+### Check the machine before proposing an approach
+
+A toolchain check was run before recommending anything. It found Node 18.18.2
+against a specification requiring Node 22, and a Homebrew PostgreSQL 16.9 with
+both required extensions available and the OS user holding superuser rights.
+
+That check is what made "Docker is not required here" a verified statement
+rather than a guess, and it caught the Node mismatch before it could surface as
+a confusing install failure later.
+
+---
+
+## 3. What was built
+
+Five forward-only migrations, applied to a local PostgreSQL 16.9 database named
+`beorchid_core_dev`.
+
+| File | Contents |
+|---|---|
+| `0000_extensions.sql` | `pgcrypto`, `citext` |
+| `0001_core_schema.sql` | The ten `core` tables, generated by Drizzle Kit |
+| `0002_resolution_views.sql` | The two safeguard views, hand-written |
+| `0003_roles_and_grants.sql` | Database roles and least-privilege grants |
+| `0004_migrate_role_db_grant.sql` | `CREATE` on database for the migration role |
+
+Migration `0004` exists because `0003` had already been applied, and §9.3
+forbids editing an applied migration. It is a small, deliberate demonstration
+that the forward-only rule is being followed rather than merely described.
+
+### Also written
+
+- **`scripts/connect-app.ts`** — §13 steps 1–3 (register app, create schema,
+  create least-privilege role) as an idempotent, executable script. App keys are
+  validated against a pattern rather than escaped, because schema and role names
+  are identifiers and cannot be parameterised.
+- **`scripts/migrate.ts`** — runs as the migration role, deliberately not the
+  runtime role.
+- **`scripts/bootstrap-local.ts`** — grants `LOGIN` and local throwaway
+  passwords so tests exercise the real grant model. Refuses to run unless
+  `NODE_ENV` is `development`.
+- **Ten table definitions** in `src/db/schema/`, each carrying its
+  architecture-section reference in a comment, so the reasoning survives contact
+  with a future engineer.
+
+---
+
+## 4. Why tables are generated and views are not
+
+Tables come from Drizzle schema definitions via `drizzle-kit generate`. Views
+and grants are hand-written SQL. This split is deliberate, for two reasons.
+
+**The practical one.** Drizzle Kit cannot express `security_invoker = false`,
+and has no concept of `GRANT` or `REVOKE` at all. Those would have to be
+hand-written regardless.
+
+**The one that actually matters.** The two views *are* the enforcement
+mechanism described in §5.2. They should be reviewable as SQL, in a migration
+file, by whoever audits this in a year — not reconstructed mentally from an ORM
+builder's output. The same applies to every grant.
+
+The generated SQL for `0001` was read line by line rather than trusted, which is
+how the `citext` column types, the partial index on `users(email) where
+deleted_at is null`, and the `UNIQUE NULLS NOT DISTINCT` clause were each
+confirmed to have come out correctly.
+
+The views are additionally declared in Drizzle as `.existing()` — so query code
+gets their shape and type safety, while their DDL stays under hand control.
+
+---
+
+## 5. The hard part: making §5.2 enforceable
+
+§5.2 asks for something that sounds simple and is not:
+
+> the raw join table stays reachable only for role/permission administration
+> […] a separate code path from resolving what a user can do
+
+A database grant has no concept of *purpose*. One role cannot hold a privilege
+for one code path and be denied it in another. As literally specified, this was
+not implementable.
+
+Two moves closed the gap.
+
+### Split the role in two
+
+| Role | Purpose | Reaches `role_permissions` |
+|---|---|---|
+| `core_api_rw` | Serves requests; resolves permissions | **No privilege** |
+| `core_api_admin` | Creates roles, attaches permissions | Full DML |
+| `beorchid_migrate` | DDL; holds `REFERENCES` on `core` (§5.4) | Owner |
+| `<app>_rw` | One per app; own schema only (§5.5) | **No privilege** |
+
+"Purpose" becomes identity, and identity is something the database can enforce.
+
+### Use view ownership as the resolution path
+
+PostgreSQL views execute with their **owner's** privileges by default, not the
+caller's. So `core_api_rw` can hold `SELECT` on `core.app_scoped_permissions`
+while holding *zero* privilege on the tables underneath it.
+
+The result is that resolution through a view succeeds, and a hand-rolled join
+that forgets the app filter fails outright with `42501 insufficient_privilege`.
+A future engineer adding a new resolution path cannot quietly bypass the filter,
+because the bypass does not run.
+
+`security_invoker = false` is set **explicitly** in `0002` rather than relying
+on the default. A future PostgreSQL release changing that default would
+otherwise silently dismantle the entire guarantee.
+
+### The leak, demonstrated
+
+Alice holds the global `admin` role, linked to a core-wide permission, one
+Thrivo permission, and one Toplance permission. Resolving her Thrivo
+permissions:
+
+```
+resolve( membership = alice@acme, app = thrivo )
+
+  naive join, app filter forgotten   → leads:delete  members:invite  projects:delete
+                                                                     ^^^^^^^^^^^^^^^
+                                                                     Toplance's — leaked
+
+  through core.app_scoped_permissions → leads:delete
+```
+
+The naive query was run as the migration role to produce that output. Run as
+`core_api_rw` — the role that actually serves requests — it does not return a
+leaked result. It returns an error.
+
+---
+
+## 6. A defect in the approved DDL (§5.2)
+
+§5.2 specifies `unique (app_id, key)` on `core.permissions`, commented *"same
+key: once core-wide, once per app."* That constraint does not do what the
+comment says.
+
+PostgreSQL treats `NULL`s as distinct in a unique constraint, so
+`('members:invite', NULL)` can be inserted twice without violating it. Core-wide
+permissions — the ones with a null `app_id` — could therefore be duplicated,
+which is precisely the outcome the constraint exists to prevent.
+
+### How it surfaced
+
+By transcribing rather than copy-pasting. Converting the DDL into a Drizzle
+constraint forced the question of what `unique (app_id, key)` means when
+`app_id` is nullable. A direct copy of the SQL would have carried the defect
+into production untouched — it is only visible if each clause is reasoned about
+in a different syntax.
+
+### Resolution
+
+Raised to `UNIQUE NULLS NOT DISTINCT`, covered by a test. Two consequences:
+
+- It raises the minimum to **PostgreSQL 15**. Worth confirming against whatever
+  version the Contabo containers will run.
+- The architecture document is signed off, so this should go back to its author
+  rather than being silently absorbed into the code.
+
+The same reasoning does *not* apply to `users.billing_customer_id`, which is
+unique and nullable by design — in System 1 every row is null, so nulls there
+must stay distinct.
+
+---
+
+## 7. How the tests are built
+
+### They connect as each database role
+
+This is the choice the whole suite rests on. Tests open connections **as
+`core_api_rw`, as `thrivo_rw`, as the migration role** — never as a superuser.
+
+A test run as a superuser would pass regardless of whether a single grant was
+correct, and would prove nothing about §5.5 at all. Connecting as the real role
+is what makes "zero access to `core`" a measured fact rather than an assertion.
+
+### The fixture is the shape that leaks
+
+`seedTwoAppScenario` builds exactly the configuration §6.1a warns about: **one**
+global `admin` role, linked simultaneously to a core-wide permission, a Thrivo
+permission, and a Toplance permission, with the same user assigned `admin` in
+Thrivo and `viewer` in Toplance.
+
+That is the arrangement that leaks if resolution ever forgets its app filter.
+Building the fixture this way means a regression cannot pass quietly.
+
+### What the tests establish
+
+| Suite | § | Tests | What it establishes |
+|---|---|---|---|
+| `app-isolation` | 5.4, 5.5 | 8 | An app role is denied on every `core` table, both views, and any other app's schema — while its foreign key into `core.users` still exists and holds. |
+| `identity-uniqueness` | 4.1a, 5.3 | 6 | A duplicate Clerk identity is rejected; a replayed webhook upsert returns the same UUID; `Alice@` and `alice@` cannot fork an account. |
+| `permission-resolution` | 6.1a, 6.3 | 10 | App-scoped resolution never leaks across apps; a disabled assignment resolves to nothing; the runtime role cannot query `role_permissions` at all. |
+
+**A note on what "pass" means here.** Most of these tests pass because an
+operation is *denied*. That inversion is the point of the design: §4.1a argues
+the guarantee should not rest on application code being written correctly every
+time, but on the database making the wrong outcome impossible. A test that
+asserts `42501` is asserting exactly that.
+
+---
+
+## 8. How things were verified
+
+Three checks, each guarding against a different way of fooling oneself.
+
+### The leak was demonstrated, not assumed
+
+A passing test proves the view returns `['leads:delete']`. It does not prove
+anything was ever at risk of leaking — the test could be passing vacuously.
+So the naive join was run separately to show it genuinely returns
+`projects:delete`, establishing that the safeguard is load-bearing.
+
+### The setup was rehearsed from an empty database
+
+Before `SETUP.md` was written, the database and all five cluster roles were
+dropped and every documented step re-run from scratch.
+
+That rehearsal exposed two defects invisible on the machine where the work was
+built:
+
+- `package.json` declared `db:setup` and `db:reset` pointing at
+  `scripts/setup-local-db.ts`, a file that does not exist — it had been renamed
+  to `bootstrap-local.ts` mid-build and the script entries were never updated.
+  Both ran straight into "module not found."
+- `.env.example` hardcoded a PostgreSQL username, so a fresh clone would fail
+  for anyone whose OS user differed. The connection string now omits the user,
+  which makes libpq default to the current OS user and work anywhere.
+
+### Grants were inspected, not inferred
+
+`information_schema.role_table_grants` was queried directly to confirm
+`core_api_rw` holds nothing on `role_permissions`, rather than assuming the
+`REVOKE` statement had the intended effect. Likewise `pg_class.reloptions` was
+checked to confirm `security_invoker=false` actually landed on both views.
+
+---
+
+## 9. Course corrections during the build
+
+Recorded because the path is part of the record.
+
+| What happened | Resolution |
+|---|---|
+| Two `cd` commands failed because the shell was already in that directory, silently skipping the write of `roles.ts` | Caught on the next `ls`; file written separately |
+| First test run failed — three test files ran concurrently against one shared database and truncated each other's fixtures | `--test-concurrency=1`; `core.apps` also added to the reset helper |
+| `npm audit` reported a **high-severity SQL injection** in the installed `drizzle-orm` | Upgraded to 0.45.2 mid-build rather than carry it in an identity database |
+| `tsc` rejected the `.ts` import specifiers needed for ESM | Enabled `allowImportingTsExtensions` |
+| `core-api` was initialised as its own git repository, staging it as a gitlink in the root repo | Nested `.git` moved aside, files committed directly into the monorepo |
+
+Four moderate `npm audit` findings remain, all `esbuild` reached through
+`drizzle-kit` — a devDependency that is never deployed. `npm audit fix --force`
+resolves them by *downgrading* drizzle-kit to 0.18.1, which is worse. Left as is
+deliberately.
+
+---
+
+## 10. Deliberate deviations
+
+Each is also recorded in `README.md`, so it surfaces at review rather than being
+buried in a diff.
+
+**1 — `UNIQUE NULLS NOT DISTINCT` on `core.permissions`.** Corrects a constraint
+that does not enforce what its own comment claims. Raises the floor to
+PostgreSQL 15. See §6 above.
+
+**2 — The access log is append-only to the runtime role.** `core_api_rw`
+receives `INSERT` and `SELECT` on `core.access_log`, but not `UPDATE` or
+`DELETE`. Not specified in §6.5; added because an audit trail a compromised
+runtime can rewrite is not an audit trail. Covered by a test.
+
+**3 — No `DEFAULT PRIVILEGES` on schema `core`.** A table added to `core` in a
+future migration starts unreachable by every role and must be granted
+explicitly. A forgotten grant fails loudly; a silently inherited one would
+produce a quiet privilege leak.
+
+**4 — One repository, not three.** §9.1 confirms three separate repositories
+(`core-api`, `core-web`, `core-mobile`). At BeOrchid's direction everything
+lives in a single `beorchid-core` monorepo instead, with `core-api` as a
+directory. Recorded here because §9.1 is a signed-off item; the future
+`core-web` and `core-mobile` will be sibling directories rather than separate
+remotes.
+
+---
+
+## 11. Changes made to the development machine
+
+| Change | Detail |
+|---|---|
+| Node upgraded | Was 18.18.2; installed 22.23.2 via nvm and set as default. The architecture specifies Node 22. |
+| Database created | `beorchid_core_dev` in the existing Homebrew PostgreSQL 16.9 cluster. Existing databases were not touched. |
+| Cluster roles created | `beorchid_migrate`, `core_api_rw`, `core_api_admin`, `thrivo_rw`, `toplance_rw` — all local, all with throwaway passwords. |
+| Dependency raised | `drizzle-orm` to 0.45.2, resolving a high-severity SQL-injection advisory. |
+
+Docker was not used. The local Homebrew PostgreSQL install had everything the
+schema needs. The one thing a single local cluster cannot rehearse is §8.2's
+staging-cannot-reach-production isolation, which is a property of two separate
+instances; that gets verified on Coolify, where it actually matters.
+
+**For the secret scanner.** The literal `local_dev_only` appears in test helpers
+and scripts. It is a throwaway password for a local-only database, but the
+pre-commit scanner required by §12 will flag it. Allowlist it when that scanner
+is added. No `.env` file is tracked in git.
+
+---
+
+## 12. What is not proven
+
+Stated plainly, because the gap is real and easy to miss.
+
+### The view-ownership chain is untested outside superuser
+
+Locally, both views are owned by `mac` — **a superuser**. So "the view executes
+with its owner's privileges and can therefore read the base tables" is trivially
+true here, and the tests cannot distinguish that from the production case.
+
+In staging and production the views will be owned by `beorchid_migrate`, which
+holds **no explicit `SELECT` grant on `core` at all**. It will work, because
+that role will *own* the tables it created and owners hold implicit privileges —
+but that path has never been executed.
+
+**The failure mode:** if migrations are ever run by a role that does not own the
+views, permission resolution breaks for every app at once.
+
+Worth closing with a test that runs the full migration sequence as a genuine
+non-superuser before this reaches staging.
+
+### Everything requiring an external service
+
+No Clerk instance, so nothing about token verification, webhook ingest, or the
+`user.created` → `core.users` path has been exercised against reality. No Redis,
+so the fail-safe behaviour required by §11 — a cache outage making the system
+slower but never less strict — is designed but unwritten. No Core API process
+exists yet, so §3.1a's HTTP surface is entirely unbuilt.
+
+---
+
+## 13. Open decisions
+
+### Per-app database role naming (§15.2)
+
+§15.2 lists this as the one naming convention not yet signed off. `<app>_rw` is
+used throughout, following §5.5's own example, and is marked as a placeholder at
+every site it appears — `src/db/schema/apps.ts`, `scripts/connect-app.ts`,
+`README.md` and `SETUP.md`.
+
+It is cheap to change now and expensive once staging exists, since naming locks
+on first creation. This is the single item most worth resolving before the next
+slice of work.
+
+### Still out of scope
+
+§15.3 (mobile cross-app session sharing) and §15.4 (combined invite plus
+app-role assignment) remain pending a separate scope and timeline discussion.
+Nothing here anticipates them, though `core.app_role_assignments` already
+supports 15.4 without a schema change, exactly as the document says.
+
+---
+
+## 14. What comes next
+
+Two candidates, either of which can start immediately:
+
+- **Clerk webhook ingest (§4.6)** with all three safeguards — signature
+  verification, idempotency through `core.webhook_events`, and the
+  reconciliation job. This is the only write path into identity, which makes it
+  the highest-consequence piece remaining. It can be built against a mocked
+  signature verifier until a real Clerk instance exists.
+- **The Core API HTTP surface (§3.1a)** — `/healthz`, `/readyz`, `/v1/me`, and
+  the batch lookup endpoints. Needs nothing external, and the batch-first shape
+  matters more than it looks: a fifty-row list view becomes fifty requests under
+  a naive per-row pattern.
+
+Worth slotting in alongside either: the non-superuser migration test described
+in §12.
+
+Everything beyond those is gated on accounts and infrastructure that do not
+exist yet — Clerk instances, the Contabo host under Coolify, an Infisical
+project, and off-host object storage for backups. All four need creating under
+BeOrchid's own ownership per §12, and all four have lead time.
