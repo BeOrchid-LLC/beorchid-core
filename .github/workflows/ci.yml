@@ -1,0 +1,72 @@
+name: CI
+
+# Nothing ran the test suite on push before this. A regression could land on
+# main and nobody would know until it broke in Coolify.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Real PostgreSQL and Redis, not mocks. The whole point of this suite is
+      # that it connects as each database role and exercises the actual grant
+      # model (Section 5.5) — a mock would prove nothing about that.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: postgres
+      # Superuser connection, used only to create the test database and to
+      # bootstrap the app roles (Sections 5.5, 9.3) — the same two steps a
+      # developer runs by hand locally, from SETUP.md.
+      DATABASE_URL_MIGRATE: postgres://postgres:postgres@localhost:5432/beorchid_core_test
+      TEST_DATABASE_URL_MIGRATE: postgres://postgres:postgres@localhost:5432/beorchid_core_test
+      TEST_DATABASE_NAME: beorchid_core_test
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Create the test database
+        run: psql -h localhost -U postgres -c "CREATE DATABASE beorchid_core_test;"
+
+      - name: Apply migrations (Section 9.3 — forward-only, applied here exactly as in deployment)
+        run: npm run db:migrate
+
+      - name: Bootstrap app roles (mirrors DEPLOYMENT.md's manual step, done in CI instead)
+        run: npm run db:bootstrap
+
+      - run: npm run typecheck
+
+      - run: npm test
