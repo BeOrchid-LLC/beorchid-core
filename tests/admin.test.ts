@@ -9,7 +9,7 @@ import '../src/load-env.ts';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import type pg from 'pg';
-import { migratePool, resetCore } from './helpers.ts';
+import { migratePool, resetCore, seedAppCredential } from './helpers.ts';
 
 const ADMIN_KEY = 'test_admin_key';
 const APP_KEY = 'test_app';
@@ -17,7 +17,6 @@ const APP_SECRET = 'test_app_secret';
 
 process.env['DATABASE_URL'] = process.env['TEST_DATABASE_URL_MIGRATE'];
 process.env['DATABASE_URL_ADMIN'] = process.env['TEST_DATABASE_URL_MIGRATE'];
-process.env['APP_API_KEYS'] = `${APP_KEY}:${APP_SECRET}`;
 process.env['ADMIN_API_KEY'] = ADMIN_KEY;
 process.env['NODE_ENV'] = 'test';
 
@@ -55,7 +54,17 @@ describe('admin surface (Section 3.1a)', () => {
 
     it('refuses a valid APP key — a registered app must not reach this surface', async () => {
       // The property this whole surface split exists for. A leaked core_web
-      // key must not be able to mint itself arbitrary permissions.
+      // key must not be able to mint itself arbitrary permissions. The key
+      // used here is REAL and valid on the app-facing surface — seeded as a
+      // genuine core.app_credentials row — precisely so this proves the split
+      // holds, rather than merely proving an unrecognised key is rejected.
+      const { rows } = await db.query<{ id: string }>(
+        `INSERT INTO core.apps (key, name, schema_name, db_role)
+         VALUES ($1, 'Test App', 'test_app', 'test_app_rw') RETURNING id`,
+        [APP_KEY],
+      );
+      await seedAppCredential(db, rows[0]!.id, APP_SECRET);
+
       const res = await post('/v1/admin/roles', { key: 'x', name: 'X' }, APP_SECRET);
       assert.equal(res.status, 401);
     });
@@ -134,6 +143,10 @@ describe('admin surface (Section 3.1a)', () => {
       // ever reaching the resolution logic under test.
       const appRes = await post('/v1/admin/apps', { key: APP_KEY, name: 'Test App' }, ADMIN_KEY);
       const appBody = (await appRes.json()) as any;
+      // The resolve calls below authenticate as this app, which needs a real
+      // credential now that keys live in the database rather than an
+      // environment variable (item 10).
+      await seedAppCredential(db, appBody.id, APP_SECRET);
       const roleRes = await post('/v1/admin/roles', { key: 'editor', name: 'Editor' }, ADMIN_KEY);
       const role = (await roleRes.json()) as any;
 

@@ -1,4 +1,5 @@
 import '../src/load-env.ts';
+import { createHash } from 'node:crypto';
 import pg from 'pg';
 
 const host = 'localhost';
@@ -71,6 +72,7 @@ export async function resetCore(pool: pg.Pool): Promise<void> {
   await pool.query(`
     TRUNCATE
       core.access_log,
+      core.app_credentials,
       core.app_role_assignments,
       core.memberships,
       core.role_permissions,
@@ -82,6 +84,23 @@ export async function resetCore(pool: pg.Pool): Promise<void> {
       core.organizations
     RESTART IDENTITY CASCADE
   `);
+
+  // Tests reuse literal raw keys like 'test_api_key' across many describe
+  // blocks. validateApiKey() (item 10) caches a key's hash to app id in Redis,
+  // so a stale entry from an earlier test's app — just truncated above — would
+  // otherwise be served for up to CACHE_TTL_SEC, pointing at an app id that no
+  // longer exists and failing downstream with a foreign key violation on
+  // access_log. resetCore() truncating the database without also clearing this
+  // cache would leave exactly that gap.
+  //
+  // Imported dynamically, not at module top level. helpers.ts is imported
+  // statically by every test file, before that file's own process.env[...]
+  // assignments run — a static import chain into config.ts here would freeze
+  // its values from whatever the environment held before those assignments,
+  // the same hazard api.test.ts's own dynamic import of app.ts already exists
+  // to avoid.
+  const { cacheInvalidate } = await import('../src/services/cache.ts');
+  await cacheInvalidate('cred:*');
 }
 
 export interface Fixture {
@@ -185,4 +204,24 @@ export async function permissionKeys(
 ): Promise<string[]> {
   const { rows } = await pool.query<{ permission_key: string }>(sql, params);
   return rows.map((r) => r.permission_key).sort();
+}
+
+
+/**
+ * Seeds a real app_credentials row for a raw key, hashed the same way
+ * validateApiKey() hashes it. Tests authenticate through the real HTTP
+ * middleware, not by bypassing it, so they need real rows rather than an
+ * environment variable that no longer does anything (item 10).
+ */
+export async function seedAppCredential(
+  pool: pg.Pool,
+  appId: string,
+  rawKey: string,
+  label = 'test',
+): Promise<void> {
+  const keyHash = createHash('sha256').update(rawKey).digest('hex');
+  await pool.query(
+    `INSERT INTO core.app_credentials (app_id, key_hash, label) VALUES ($1, $2, $3)`,
+    [appId, keyHash, label],
+  );
 }

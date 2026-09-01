@@ -21,7 +21,19 @@ the history of what shipped when is worth keeping.
 - [x] Core SDK — token verification, permission helpers, HTTP client (§5.6)
 - [x] `core-web` reference app — login, DB access, permission enforcement
       end to end (§3.1)
-- [x] 95 automated tests passing across both repos
+- [x] App API key management (item 10) — hashed keys in
+      `core.app_credentials`, Redis-cached with the same fail-safe as
+      permission resolution. Connecting an app is now an insert, not an env
+      var edit plus a redeploy. `connect-app.ts` issues the first key;
+      `db:issue-app-key` issues additional ones for rotation.
+- [x] `POST /v1/apps`, `/v1/roles`, `/v1/roles/:id/permissions`,
+      `/v1/memberships/:id/app-roles` — the §3.1a admin surface, gated by a
+      separate operator credential so a regular app's key cannot reach it
+- [x] CI — both repos run their full suite, typecheck, and (for `core-web`) a
+      real build on every push
+- [x] Reconciliation scheduled every 15 minutes as a Coolify Scheduled Task,
+      with a machine-readable success line for alerting
+- [x] 65 tests in `core-api` — up from 53 — plus the SDK's 42
 
 ---
 
@@ -90,19 +102,12 @@ just effort.
 
 ## Not started — application
 
-- [ ] **App API key management redesign (item 10).** Still env-var based —
-      connecting a new app currently means editing `APP_API_KEYS` and
-      redeploying Core API, which contradicts §13's "no redeploy" acceptance
-      test. Needs your design sign-off before building.
-- [ ] **`POST /v1/apps`, `POST /v1/roles`** and the other admin endpoints
-      described in §3.1a — not built yet
-- [ ] **Reconciliation job scheduling.** `db:reconcile` exists but runs on no
-      schedule — currently a manual command only
-- [ ] **CI.** Nothing runs the 95 tests on push — a regression could land
-      silently on either repo
-- [ ] **The §13 "Connect a new app" document itself.** Blocked on the API key
-      redesign above — can't be written truthfully until connecting an app
-      doesn't require a redeploy
+- [ ] **The §13 "Connect a new app" document itself.** No longer blocked —
+      `db:connect-app` genuinely satisfies "no redeploy" now. Still needs
+      writing as a standalone guide a new developer follows unaided.
+- [ ] **A revoke/rotate flow the Coolify dashboard side actually uses.** The
+      endpoints exist and are tested; nothing yet documents when an operator
+      should rotate a key or what the runbook for a suspected leak is.
 
 ---
 

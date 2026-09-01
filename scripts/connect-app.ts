@@ -163,10 +163,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL_MIGRATE });
   try {
     const result = await connectApp(pool, appKey, displayName, 'local_dev_only');
+
+    // Issued here, once, in the same run that creates the schema and role —
+    // so a single command produces everything Section 13 needs to connect an
+    // app, including its Core API credential. Not part of connectApp() itself,
+    // because that function's ON CONFLICT DO UPDATE makes it safe to re-run,
+    // and re-running should not mint a second key each time.
+    const { issueCredentialAsMigrationRole } = await import('../src/services/credentials.ts');
+    const credential = await issueCredentialAsMigrationRole(pool, result.appId, 'initial');
+
     console.log(`Connected "${displayName}":`);
     console.log(`  app id     ${result.appId}`);
     console.log(`  schema     ${result.schemaName}`);
     console.log(`  db role    ${result.dbRole}  (zero access to core)`);
+    console.log(``);
+    console.log(`  Core API key (save this now — it cannot be retrieved again):`);
+    console.log(`  ${credential.rawKey}`);
   } catch (error) {
     console.error('Failed:', error instanceof Error ? error.message : error);
     process.exitCode = 1;

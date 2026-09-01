@@ -1,13 +1,16 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
-import { config } from '../config.ts';
-import { findAppByKey } from '../services/identity.ts';
+import { validateApiKey } from '../services/credentials.ts';
 
 /**
- * Identifies the calling app (Sections 5.6, 6.5).
+ * Identifies the calling app (Sections 5.6, 6.5, item 10).
  *
  * Every Core API call carries an app API key, and every access-log entry is
  * tagged with the app it resolved to. Without this the log records that
  * something read identity data but not who, which is most of its value gone.
+ *
+ * Keys are validated against core.app_credentials, not an environment
+ * variable — connecting a new app is an INSERT, not a redeploy, which is what
+ * Section 13's acceptance target actually requires.
  *
  * This authenticates the APP, not the end user. The user's own session token is
  * verified by the app itself, locally against Clerk's JWKS (Section 4.5), and
@@ -34,16 +37,12 @@ export const appAuth: MiddlewareHandler = async (c: Context, next: Next) => {
     return c.json({ error: 'missing app API key' }, 401);
   }
 
-  const appKey = config.appApiKeys.get(token);
-  if (!appKey) {
-    return c.json({ error: 'unknown app API key' }, 401);
-  }
-
-  const app = await findAppByKey(appKey);
+  const app = await validateApiKey(token);
   if (!app) {
-    // The key is configured but the app is not registered in core.apps, or is
-    // inactive. Section 13 step 1 has not been completed for it.
-    return c.json({ error: `app "${appKey}" is not registered or is inactive` }, 403);
+    // Deliberately one message for "no such key", "key revoked" and "app
+    // inactive" alike. Distinguishing them in the response would let a caller
+    // probe which keys exist.
+    return c.json({ error: 'invalid app API key' }, 401);
   }
 
   c.set('app', { id: app.id, key: app.key, name: app.name });

@@ -37,13 +37,6 @@ export const config = {
   },
 
   /**
-   * API keys for calling apps, as `<appKey>:<secret>` pairs.
-   * Every Core API call is attributable to one app, which is what makes the
-   * access log meaningful (Section 6.5).
-   */
-  appApiKeys: parseAppKeys(process.env['APP_API_KEYS']),
-
-  /**
    * Gates the administration surface (Section 3.1a): registering apps,
    * defining roles, attaching permissions. Deliberately a single operator
    * secret rather than one of the per-app keys above — these are BeOrchid
@@ -53,15 +46,5 @@ export const config = {
    */
   adminApiKey: optional('ADMIN_API_KEY'),
 } as const;
-
-function parseAppKeys(raw: string | undefined): ReadonlyMap<string, string> {
-  const map = new Map<string, string>();
-  if (!raw) return map;
-  for (const pair of raw.split(',')) {
-    const [appKey, secret] = pair.split(':');
-    if (appKey && secret) map.set(secret.trim(), appKey.trim());
-  }
-  return map;
-}
 
 export const isDevelopment = config.env === 'development';

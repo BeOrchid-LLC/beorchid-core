@@ -123,7 +123,8 @@ Run from `core-api/`.
 | `npm run db:migrate` | Applies pending migrations. Forward-only (§9.3). |
 | `npm run db:generate` | Generates a new migration from changed Drizzle schema. |
 | `npm run db:bootstrap` | Local only — grants `LOGIN` and dev passwords to roles. |
-| `npm run db:connect-app -- <key> "<Name>"` | §13 steps 1–3: registers an app, creates its schema and least-privilege role. |
+| `npm run db:connect-app -- <key> "<Name>"` | §13 steps 1–3+7: registers an app, creates its schema, its least-privilege role, and issues its first Core API key. |
+| `npm run db:issue-app-key -- <key> [label]` | Issues an additional or rotated key for an already-connected app. |
 | `npm test` | Runs the suite serially against the local database. |
 | `npm run typecheck` | `tsc --noEmit`. |
 
@@ -138,7 +139,15 @@ Connected "Thrivo":
   app id     7b198c8d-d2e2-4e43-b909-f4164ac812b8
   schema     thrivo
   db role    thrivo_rw  (zero access to core)
+
+  Core API key (save this now — it cannot be retrieved again):
+  a1b2c3...
 ```
+
+That key is what the app puts in its own `CORE_API_KEY` variable (§5.6). It is
+stored **hashed** in `core.app_credentials` — item 10's replacement for the old
+`APP_API_KEYS` environment variable — and shown exactly once. Losing it means
+issuing a new one with `db:issue-app-key`, not retrieving the old one.
 
 > **`<app>_rw` is not confirmed naming.** §15.2 lists per-app database role
 > names as the one convention still unsigned. It is used as a placeholder

@@ -7,6 +7,7 @@ import {
   createRole,
   registerApp,
 } from '../../services/admin.ts';
+import { issueCredential, revokeCredential } from '../../services/credentials.ts';
 
 /**
  * The administration surface (Section 3.1a).
@@ -49,6 +50,54 @@ admin.post('/apps', async (c) => {
   });
 
   return c.json(app, 201);
+});
+
+/**
+ * Issues a new Core API credential for an already-registered app (item 10).
+ * The counterpart to connect-app.ts issuing the first one — this is what
+ * rotation looks like without a redeploy: issue the new key, update the
+ * caller, then revoke the old one via DELETE below.
+ */
+admin.post('/apps/:id/credentials', async (c) => {
+  const appId = c.req.param('id');
+  if (!UUID.test(appId)) return c.json({ error: 'app id must be a uuid' }, 400);
+
+  const body = await c.req.json().catch(() => ({}));
+  const label = typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : 'rotation';
+
+  const credential = await issueCredential(appId, label);
+
+  await recordAccess({
+    action: 'app_credentials:write',
+    method: 'write',
+    resource: 'core.app_credentials',
+    resourceId: credential.credentialId,
+    result: 'allowed',
+    metadata: { appId, label },
+  });
+
+  // The only point at which the raw key exists outside this function's stack.
+  // Never logged, never stored again.
+  return c.json({ credentialId: credential.credentialId, key: credential.rawKey }, 201);
+});
+
+/** Revokes a credential immediately — cache included, not just the database row. */
+admin.delete('/credentials/:id', async (c) => {
+  const credentialId = c.req.param('id');
+  if (!UUID.test(credentialId)) return c.json({ error: 'credential id must be a uuid' }, 400);
+
+  const revoked = await revokeCredential(credentialId);
+  if (!revoked) return c.json({ error: 'credential not found or already revoked' }, 404);
+
+  await recordAccess({
+    action: 'app_credentials:revoke',
+    method: 'write',
+    resource: 'core.app_credentials',
+    resourceId: credentialId,
+    result: 'allowed',
+  });
+
+  return c.json({ revoked: true });
 });
 
 /** Defines or updates a global role (Section 6.1a). */

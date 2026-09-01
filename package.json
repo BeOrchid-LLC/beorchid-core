@@ -18,6 +18,7 @@
     "db:reconcile": "tsx scripts/reconcile-clerk.ts",
     "db:grant-dev-access": "tsx scripts/grant-dev-access.ts",
     "db:connect-app": "tsx scripts/connect-app.ts",
+    "db:issue-app-key": "tsx scripts/issue-app-key.ts",
     "test": "node --import tsx --test --test-concurrency=1 --test-force-exit tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

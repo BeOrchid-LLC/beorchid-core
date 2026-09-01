@@ -10,7 +10,7 @@ import '../src/load-env.ts';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import type pg from 'pg';
-import { migratePool, resetCore } from './helpers.ts';
+import { migratePool, resetCore, seedAppCredential } from './helpers.ts';
 
 const APP_KEY = 'test_app';
 const API_KEY = 'test_api_key';
@@ -23,7 +23,6 @@ const OTHER_API_KEY = 'other_api_key';
 const testDbUrl = process.env['TEST_DATABASE_URL_MIGRATE'];
 if (!testDbUrl) throw new Error('TEST_DATABASE_URL_MIGRATE is required to run the API tests.');
 process.env['DATABASE_URL'] = testDbUrl;
-process.env['APP_API_KEYS'] = `${APP_KEY}:${API_KEY},${OTHER_APP_KEY}:${OTHER_API_KEY}`;
 process.env['CLERK_WEBHOOK_SIGNING_SECRET'] = 'whsec_dGVzdHNlY3JldGZvcnVuaXR0ZXN0aW5nMTIz';
 process.env['NODE_ENV'] = 'test';
 
@@ -52,6 +51,10 @@ describe('Core API', () => {
     db = migratePool();
     await resetCore(db);
     fx = await seed(db);
+    // Real credential rows, not an environment variable (item 10) — tests
+    // authenticate through the actual middleware, against the actual table.
+    await seedAppCredential(db, fx.appId, API_KEY);
+    await seedAppCredential(db, fx.otherAppId, OTHER_API_KEY);
   });
 
   after(async () => {
@@ -72,10 +75,16 @@ describe('Core API', () => {
       assert.equal(res.status, 401);
     });
 
-    it('rejects a key whose app is not registered in core.apps', async () => {
+    it('rejects a key whose app has gone inactive', async () => {
+      // Item 10: validateApiKey() returns the same 401 for an unknown key, a
+      // revoked credential, and a key whose app is inactive, rather than the
+      // previous design's distinct 403 for this last case. That distinction
+      // let a caller learn something real from the response — "this key is
+      // recognised, but its app was deactivated" is more than an unauthorised
+      // caller should be told. One uniform failure leaks nothing.
       await db.query(`UPDATE core.apps SET status = 'inactive' WHERE key = $1`, [OTHER_APP_KEY]);
       const res = await get('/v1/me?clerk_user_id=user_alice', OTHER_API_KEY);
-      assert.equal(res.status, 403);
+      assert.equal(res.status, 401);
       await db.query(`UPDATE core.apps SET status = 'active' WHERE key = $1`, [OTHER_APP_KEY]);
     });
   });
