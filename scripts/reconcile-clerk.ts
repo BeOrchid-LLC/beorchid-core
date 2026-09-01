@@ -152,6 +152,12 @@ try {
   console.log(`  organizations ${orgs}`);
   console.log(`  memberships   ${memberships}`);
 
+  // A single machine-readable line, deliberately separate from the summary
+  // above. Section 11's "alert on silence" pattern needs a success signal to
+  // watch for; this is the line a scheduled-task log scraper or Coolify's own
+  // notification-on-failure both key off, without parsing the prose above it.
+  console.log(`RECONCILE_OK users=${users} orgs=${orgs} memberships=${memberships}`);
+
   // ── Development convenience, NOT part of reconciliation ───────────────
   // App role assignments are a BeOrchid concept Clerk knows nothing about, so
   // reconciliation can never rebuild them (Section 10.2). This flag grants
