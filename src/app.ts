@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
+import { adminAuth } from './middleware/admin-auth.ts';
 import { appAuth } from './middleware/app-auth.ts';
 import { health } from './routes/health.ts';
+import { admin } from './routes/v1/admin.ts';
 import { identity } from './routes/v1/identity.ts';
 import { clerkWebhook } from './routes/webhooks/clerk.ts';
 
@@ -55,6 +57,15 @@ export function createApp(): Hono {
   // Clerk calls this, not an app, so it carries no app API key. It is
   // authenticated by Svix signature instead (Section 4.6, safeguard 1).
   app.route('/webhooks', clerkWebhook);
+
+  /**
+   * The admin surface is mounted and gated BEFORE the app-scoped middleware
+   * below, and matched here first, so /v1/admin/* is never subject to appAuth
+   * at all — a registered app's own key must not unlock it (see adminAuth's
+   * own comment for why the two checks cannot share a code path).
+   */
+  app.use('/v1/admin/*', adminAuth);
+  app.route('/v1/admin', admin);
 
   // Everything else identifies its calling app, so every access is attributable
   // in core.access_log (Section 6.5).

@@ -64,6 +64,13 @@
       "when": 1788243008120,
       "tag": "0008_status_checks_and_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788285638202,
+      "tag": "0009_admin_role_reads_memberships",
+      "breakpoints": true
     }
   ]
 }

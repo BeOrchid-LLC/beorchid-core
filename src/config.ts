@@ -42,6 +42,16 @@ export const config = {
    * access log meaningful (Section 6.5).
    */
   appApiKeys: parseAppKeys(process.env['APP_API_KEYS']),
+
+  /**
+   * Gates the administration surface (Section 3.1a): registering apps,
+   * defining roles, attaching permissions. Deliberately a single operator
+   * secret rather than one of the per-app keys above — these are BeOrchid
+   * administrative actions, not something any registered app should be able
+   * to reach with its own credential. Left unset, the admin routes refuse
+   * every request rather than falling open.
+   */
+  adminApiKey: optional('ADMIN_API_KEY'),
 } as const;
 
 function parseAppKeys(raw: string | undefined): ReadonlyMap<string, string> {
