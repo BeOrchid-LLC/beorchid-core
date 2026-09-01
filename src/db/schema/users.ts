@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { citext, core } from './_schema.ts';
 
 /**
@@ -23,7 +23,19 @@ export const users = core.table(
      */
     clerkUserId: text('clerk_user_id').unique().notNull(),
 
-    email: citext('email').unique().notNull(),
+    /**
+     * Uniqueness is enforced by a UNIQUE PARTIAL index over active rows only,
+     * declared below — not by a column-level constraint.
+     *
+     * A plain unique constraint conflicts with the soft delete in Section 5.3:
+     * someone who closes their account and signs up again with the same address
+     * hits a constraint violation, and because the only write path into
+     * identity is the Clerk webhook (Section 4.6), their user.created event
+     * fails permanently rather than visibly. Scoping uniqueness to rows where
+     * deleted_at is null keeps the guarantee for live accounts and lets a
+     * closed one be superseded.
+     */
+    email: citext('email').notNull(),
     fullName: text('full_name'),
 
     /**
@@ -48,8 +60,9 @@ export const users = core.table(
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
-    index('users_clerk_user_id_idx').on(t.clerkUserId),
-    index('users_email_active_idx')
+    // No separate index on clerk_user_id: the column's own unique constraint
+    // already provides one, and a duplicate costs write throughput for nothing.
+    uniqueIndex('users_email_active_idx')
       .on(t.email)
       .where(sql`deleted_at is null`),
   ],

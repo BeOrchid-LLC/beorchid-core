@@ -51,7 +51,7 @@ Infisical project exists yet, and those gate the remaining rows.
 | Access logging | Partial | Table and grants exist; API write path not built |
 | Core API deployed | Not started | Contabo / Coolify |
 | Clerk configured, both environments | Blocked | Clerk instances under BeOrchid ownership |
-| Reference apps (`core-web`, `core-mobile`) | Not started | Core API + SDK |
+| Reference apps | Partial | `core-web` works; mobile withdrawn from scope, see deviation 5 |
 | Staging + production, separate and verified | Blocked | Contabo / Coolify, Infisical |
 | Backups, one restore tested and evidenced | Not started | Off-host object storage |
 | Monitoring live and alerting | Not started | Coolify host |
@@ -378,6 +378,25 @@ lives in a single `beorchid-core` monorepo instead, with `core-api` as a
 directory. Recorded here because §9.1 is a signed-off item; the future
 `core-web` and `core-mobile` will be sibling directories rather than separate
 remotes.
+
+**5 — `core-mobile` withdrawn from scope.** §15.1 confirms the surface scope as
+both web and mobile, §9.1 names `core-mobile` as a repository, and §3.1 lists it
+as a component. At BeOrchid's direction on 31 August 2026 it is not being built.
+
+Two consequences worth recording rather than discovering later:
+
+- **§6.4 loses its demonstration.** The contract asks the walkthrough to show
+  the same user holding a different effective permission set *in a second
+  reference app*, as proof that app-scoped resolution is real rather than
+  designed on paper. With one app there is nothing to compare against in a
+  running UI. The property itself is proven at the database and API levels by
+  the test suite, but not demonstrated in an interface.
+- **§15.3 becomes moot.** Mobile cross-app session sharing, already pending a
+  scope discussion, has nothing left to apply to.
+
+One reason for choosing Clerk was its Expo support alongside Next.js (§2.1).
+That choice remains correct on its other merits; the mobile argument simply no
+longer applies.
 
 ---
 

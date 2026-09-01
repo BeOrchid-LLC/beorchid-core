@@ -1,9 +1,20 @@
+import '../src/load-env.ts';
 import pg from 'pg';
 
 const host = 'localhost';
 const port = 5432;
-const database = 'beorchid_core_dev';
 const password = 'local_dev_only';
+
+/**
+ * Tests run against their own database, never the development one.
+ *
+ * resetCore() truncates core between tests. Pointed at the development
+ * database that would destroy the fixture the reference apps depend on, which
+ * is exactly what happened once before this was separated. It is also the same
+ * instinct Section 8.2 applies to staging and production: a destructive
+ * operation should not be able to reach data someone else is using.
+ */
+const database = process.env['TEST_DATABASE_NAME'] ?? 'beorchid_core_test';
 
 /** Connects as a specific database role, so tests exercise the real grant
  *  model rather than a superuser's view of it. */
@@ -11,9 +22,49 @@ export function poolAs(role: string): pg.Pool {
   return new pg.Pool({ host, port, database, user: role, password, max: 2 });
 }
 
+
+/**
+ * Refuses to run against anything but the test database.
+ *
+ * resetCore() truncates core. If the target ever resolved to the development
+ * database — a missing TEST_DATABASE_URL_MIGRATE is enough — the suite would
+ * quietly destroy the fixture the reference apps run on. That has happened once
+ * already, so it is now an assertion rather than a convention.
+ */
+function assertTestDatabase(connectionString: string | undefined): void {
+  const target = connectionString ?? '';
+  if (!target.includes(database)) {
+    throw new Error(
+      `Refusing to run tests against "${target || '(unset)'}". ` +
+        `Expected the test database "${database}". Check TEST_DATABASE_URL_MIGRATE in .env.`,
+    );
+  }
+}
+
+/**
+ * A connection as the real `beorchid_migrate` role, not as a superuser.
+ *
+ * migratePool() connects as the local superuser, which is convenient for
+ * fixture setup but wrong for anything testing privilege behaviour: default
+ * privileges attach to the role that creates an object, so a superuser-created
+ * table does not exercise the grants an app actually relies on in deployment.
+ */
+export function migrateRolePool(): pg.Pool {
+  return new pg.Pool({
+    host,
+    port,
+    database,
+    user: 'beorchid_migrate',
+    password,
+    max: 2,
+  });
+}
+
 /** The migration role's connection — used for fixture setup only. */
 export function migratePool(): pg.Pool {
-  return new pg.Pool({ connectionString: process.env.DATABASE_URL_MIGRATE, max: 2 });
+  const connectionString = process.env['TEST_DATABASE_URL_MIGRATE'];
+  assertTestDatabase(connectionString);
+  return new pg.Pool({ connectionString, max: 2 });
 }
 
 export async function resetCore(pool: pg.Pool): Promise<void> {
@@ -26,6 +77,7 @@ export async function resetCore(pool: pg.Pool): Promise<void> {
       core.permissions,
       core.roles,
       core.apps,
+      core.webhook_events,
       core.users,
       core.organizations
     RESTART IDENTITY CASCADE

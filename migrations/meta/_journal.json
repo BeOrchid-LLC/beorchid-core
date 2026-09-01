@@ -36,6 +36,34 @@
       "when": 1787815520468,
       "tag": "0004_migrate_role_db_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788241719534,
+      "tag": "0005_migrate_role_app_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788242738433,
+      "tag": "0006_views_respect_deactivation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788242822872,
+      "tag": "0007_email_unique_when_active",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788243008120,
+      "tag": "0008_status_checks_and_updated_at",
+      "breakpoints": true
     }
   ]
 }

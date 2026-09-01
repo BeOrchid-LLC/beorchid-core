@@ -8,22 +8,32 @@
     "node": ">=22.0.0 <23"
   },
   "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "api:demo": "tsx scripts/api-demo.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:bootstrap": "tsx scripts/bootstrap-local.ts",
+    "db:seed-dev": "tsx scripts/seed-dev.ts",
+    "db:reconcile": "tsx scripts/reconcile-clerk.ts",
+    "db:grant-dev-access": "tsx scripts/grant-dev-access.ts",
     "db:connect-app": "tsx scripts/connect-app.ts",
-    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 --test-force-exit tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "drizzle-orm": "^0.45.2",
-    "pg": "^8.13.1"
+    "hono": "^4.13.5",
+    "pg": "^8.13.1",
+    "redis": "^6.2.1",
+    "svix": "^2.1.0",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
-    "@types/pg": "^8.11.10",
+    "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.10",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

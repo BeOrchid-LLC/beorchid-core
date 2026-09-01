@@ -101,6 +101,45 @@ describe('identity uniqueness (Section 4.1a)', () => {
     assert.equal(counted[0]!.count, '2');
   });
 
+  it('the same email can be reused after a soft delete', async () => {
+    // The interaction between Section 5.3's soft delete and email uniqueness.
+    // With a plain unique constraint this fails, and because the Clerk webhook
+    // is the only write path into identity (Section 4.6), the user.created
+    // event for the new signup would fail permanently rather than visibly.
+    await db.query(
+      `INSERT INTO core.users (clerk_user_id, email) VALUES ('user_first', 'reuse@beorchid.com')`,
+    );
+    await db.query(
+      `UPDATE core.users SET deleted_at = now(), status = 'deleted' WHERE clerk_user_id = 'user_first'`,
+    );
+
+    await db.query(
+      `INSERT INTO core.users (clerk_user_id, email) VALUES ('user_second', 'reuse@beorchid.com')`,
+    );
+
+    const { rows } = await db.query<{ count: string }>(
+      `SELECT count(*) FROM core.users WHERE email = 'reuse@beorchid.com'`,
+    );
+    assert.equal(rows[0]!.count, '2', 'the closed account should be retained, not replaced');
+  });
+
+  it('still rejects a duplicate email between two ACTIVE accounts', async () => {
+    // The relaxation is scoped to closed accounts. Two live accounts sharing an
+    // address would be the duplicate-identity problem this system exists to
+    // prevent (principle 1).
+    await db.query(
+      `INSERT INTO core.users (clerk_user_id, email) VALUES ('user_a', 'live@beorchid.com')`,
+    );
+    await assert.rejects(
+      () =>
+        db.query(
+          `INSERT INTO core.users (clerk_user_id, email) VALUES ('user_b', 'live@beorchid.com')`,
+        ),
+      (error: Error & { code?: string }) => error.code === '23505',
+      'two active accounts shared an email address',
+    );
+  });
+
   it('soft delete preserves the row and its foreign keys', async () => {
     // Section 5.3: app schemas hold FKs to core.users.id, so routine closure
     // must not destroy the row.

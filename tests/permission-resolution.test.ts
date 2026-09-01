@@ -96,6 +96,63 @@ describe('permission resolution (Section 6.3)', () => {
     assert.deepEqual(keys, []);
   });
 
+  describe('deactivation (Sections 5.3, 6.3)', () => {
+    // Section 5.3 chose soft delete so app foreign keys survive an account
+    // closure. The account is meant to be inactive afterwards, not merely
+    // marked, and before this the views ignored every one of these columns.
+
+    it('a soft-deleted user resolves to nothing', async () => {
+      await admin.query(`UPDATE core.users SET deleted_at = now() WHERE id = $1`, [fx.userId]);
+
+      const org = await permissionKeys(runtime, ORG_WIDE, [fx.membershipId]);
+      const app = await permissionKeys(runtime, APP_SCOPED, [fx.membershipId, fx.thrivoAppId]);
+      assert.deepEqual(org, [], 'soft-deleted user kept org-wide permissions');
+      assert.deepEqual(app, [], 'soft-deleted user kept app permissions');
+
+      await admin.query(`UPDATE core.users SET deleted_at = NULL WHERE id = $1`, [fx.userId]);
+    });
+
+    it('an inactive user resolves to nothing', async () => {
+      await admin.query(`UPDATE core.users SET status = 'deleted' WHERE id = $1`, [fx.userId]);
+      const keys = await permissionKeys(runtime, APP_SCOPED, [fx.membershipId, fx.thrivoAppId]);
+      assert.deepEqual(keys, []);
+      await admin.query(`UPDATE core.users SET status = 'active' WHERE id = $1`, [fx.userId]);
+    });
+
+    it('a suspended membership resolves to nothing', async () => {
+      await admin.query(`UPDATE core.memberships SET status = 'inactive' WHERE id = $1`, [
+        fx.membershipId,
+      ]);
+      const org = await permissionKeys(runtime, ORG_WIDE, [fx.membershipId]);
+      const app = await permissionKeys(runtime, APP_SCOPED, [fx.membershipId, fx.thrivoAppId]);
+      assert.deepEqual(org, [], 'suspended membership kept org-wide permissions');
+      assert.deepEqual(app, [], 'suspended membership kept app permissions');
+      await admin.query(`UPDATE core.memberships SET status = 'active' WHERE id = $1`, [
+        fx.membershipId,
+      ]);
+    });
+
+    it('a disabled app resolves to nothing, leaving other apps untouched', async () => {
+      await admin.query(`UPDATE core.apps SET status = 'inactive' WHERE id = $1`, [fx.thrivoAppId]);
+
+      const disabled = await permissionKeys(runtime, APP_SCOPED, [fx.membershipId, fx.thrivoAppId]);
+      const other = await permissionKeys(runtime, APP_SCOPED, [fx.membershipId, fx.toplanceAppId]);
+      assert.deepEqual(disabled, [], 'disabled app still resolved permissions');
+      assert.deepEqual(other, ['projects:read'], 'disabling one app affected another');
+
+      await admin.query(`UPDATE core.apps SET status = 'active' WHERE id = $1`, [fx.thrivoAppId]);
+    });
+
+    it('a soft-deleted organization resolves to nothing', async () => {
+      await admin.query(`UPDATE core.organizations SET deleted_at = now() WHERE id = $1`, [
+        fx.orgId,
+      ]);
+      const keys = await permissionKeys(runtime, ORG_WIDE, [fx.membershipId]);
+      assert.deepEqual(keys, []);
+      await admin.query(`UPDATE core.organizations SET deleted_at = NULL WHERE id = $1`, [fx.orgId]);
+    });
+  });
+
   it('the runtime role CANNOT bypass the views by querying role_permissions', async () => {
     // Section 5.2's enforcement claim. Not a convention — the query fails.
     await assert.rejects(

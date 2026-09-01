@@ -11,6 +11,7 @@
  *
  *   npx tsx scripts/connect-app.ts <app-key> "<Display Name>"
  */
+import '../src/load-env.ts';
 import pg from 'pg';
 
 const APP_KEY_PATTERN = /^[a-z][a-z0-9_]{1,30}$/;
@@ -68,20 +69,78 @@ export async function connectApp(
     await client.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schemaName} TO ${dbRole}`,
     );
+
+    // Sequences, not just tables. A bigserial column draws from a sequence, and
+    // a role holding INSERT on the table but nothing on its sequence fails with
+    // "permission denied for sequence" at the first insert rather than at grant
+    // time. USAGE covers nextval; SELECT covers currval and lastval.
     await client.query(
-      `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schemaName}
-       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${dbRole}`,
+      `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${schemaName} TO ${dbRole}`,
     );
 
-    // Explicitly NOT granted: any access whatsoever to schema core, and no
-    // access to any other app's schema (Section 5.5). Stated as an active
-    // REVOKE rather than as an omission, so the intent survives someone
-    // later granting core access broadly by mistake.
-    await client.query(`REVOKE ALL ON SCHEMA core FROM ${dbRole}`);
-    await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA core FROM ${dbRole}`);
+    /**
+     * FOR ROLE beorchid_migrate is load-bearing, not decoration.
+     *
+     * Default privileges attach to the role that CREATES an object, and without
+     * FOR ROLE they attach to whoever happens to run this statement. Locally
+     * that is a superuser; in staging and production it is beorchid_migrate.
+     * Omitting it means the defaults silently stop applying the moment this runs
+     * somewhere other than a developer's machine, and the symptom appears later,
+     * on the first insert into a table an app migration created.
+     *
+     * Naming the role explicitly makes the outcome identical either way.
+     */
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE beorchid_migrate IN SCHEMA ${schemaName}
+       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${dbRole}`,
+    );
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE beorchid_migrate IN SCHEMA ${schemaName}
+       GRANT USAGE, SELECT ON SEQUENCES TO ${dbRole}`,
+    );
+
+    // Section 5.5 requires the app role to hold no access to core of any kind.
+    //
+    // This used to be a pair of REVOKE statements. Two problems with that:
+    // REVOKE needs privilege on every table being revoked, which the migration
+    // role does not have and should not have — and a REVOKE that silently
+    // affects nothing looks identical to one that worked.
+    //
+    // Asserting the invariant is both weaker in privilege and stronger in
+    // effect. A fresh role starts with no privileges on core because 0003
+    // revoked them from PUBLIC, so the correct outcome needs no action. What
+    // matters is noticing if that is ever untrue.
+    const leaked = await client.query<{ detail: string }>(
+      `SELECT 'schema usage' AS detail
+       WHERE has_schema_privilege($1, 'core', 'USAGE')
+       UNION ALL
+       SELECT 'table ' || table_name || ':' || privilege_type
+       FROM information_schema.role_table_grants
+       WHERE grantee = $1 AND table_schema = 'core'`,
+      [dbRole],
+    );
+    if (leaked.rowCount && leaked.rowCount > 0) {
+      throw new Error(
+        `Role "${dbRole}" holds privileges on core, which Section 5.5 forbids: ` +
+          leaked.rows.map((r) => r.detail).join(', '),
+      );
+    }
 
     if (password) {
-      await client.query(`ALTER ROLE ${dbRole} LOGIN PASSWORD '${password}'`);
+      /**
+       * ALTER ROLE takes no bind parameters, so the password has to be a
+       * literal in the statement text. Interpolating it directly breaks on any
+       * password containing an apostrophe and makes a generated secret an
+       * injection vector into a statement that grants login rights.
+       *
+       * escapeLiteral is node-postgres's own quoting, the same routine the
+       * driver uses, so it handles quotes and backslashes correctly (emitting
+       * E'' form where needed) rather than relying on a hand-rolled replace.
+       *
+       * The role name needs no escaping — APP_KEY_PATTERN validated it above,
+       * because identifiers cannot be escaped into safety, only rejected.
+       */
+      await client.query(`ALTER ROLE ${dbRole} LOGIN PASSWORD ${client.escapeLiteral(password)}`);
     }
 
     await client.query('COMMIT');
