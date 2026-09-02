@@ -2,7 +2,7 @@
   "name": "@beorchid/core-api",
   "version": "0.1.0",
   "private": true,
-  "description": "BeOrchid Core \u2014 System 1: Identity + Central Database",
+  "description": "BeOrchid Core — System 1: Identity + Central Database",
   "type": "module",
   "engines": {
     "node": ">=22.0.0 <23"
@@ -26,6 +26,7 @@
     "@hono/node-server": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.5",
+    "jose": "^6.2.10",
     "pg": "^8.13.1",
     "redis": "^6.2.1",
     "svix": "^2.1.0",

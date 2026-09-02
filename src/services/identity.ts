@@ -95,6 +95,19 @@ export async function findMembership(
   return rows[0] ?? null;
 }
 
+/** Looked up by id rather than by (user, org) — used to check ownership when
+ * the caller only has a membership id, not the person it belongs to. */
+export async function findMembershipById(id: string): Promise<CoreMembership | null> {
+  const { rows } = await runtime().query<CoreMembership>(
+    `SELECT m.id, m.user_id AS "userId", m.org_id AS "orgId", r.key AS "roleKey", m.status
+     FROM core.memberships m
+     JOIN core.roles r ON r.id = m.role_id
+     WHERE m.id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
 /** A person's memberships, used when the session carries no organization. */
 export async function listMemberships(userId: string): Promise<CoreMembership[]> {
   const { rows } = await runtime().query<CoreMembership>(

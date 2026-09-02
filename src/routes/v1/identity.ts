@@ -1,7 +1,8 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { recordAccess } from '../../services/access-log.ts';
 import {
   findMembership,
+  findMembershipById,
   findOrganizationByClerkId,
   findUserByClerkId,
   getOrganizations,
@@ -9,6 +10,29 @@ import {
   listMemberships,
 } from '../../services/identity.ts';
 import { resolvePermissions } from '../../services/permissions.ts';
+import { extractUserToken, verifyUserToken, type VerifiedUserToken } from '../../services/user-token.ts';
+
+/**
+ * Verifies the optional end-user token on a request (Section 3.3, mobile).
+ *
+ * Returns { ok: true, token } where token is null for the existing
+ * app-trusted path (core-web), or the verified claims when a caller proved
+ * who the request is for directly. Returns { ok: false, response } when a
+ * token was presented but failed verification — callers must return that
+ * response as-is rather than falling back, since silently ignoring a bad
+ * token would let a caller downgrade itself out of the check.
+ */
+async function checkUserToken(
+  c: Context,
+): Promise<{ ok: true; token: VerifiedUserToken | null } | { ok: false; response: Response }> {
+  const raw = extractUserToken(c.req.header('x-user-token'));
+  try {
+    const token = await verifyUserToken(raw);
+    return { ok: true, token };
+  } catch {
+    return { ok: false, response: c.json({ error: 'invalid user token' }, 401) };
+  }
+}
 
 /**
  * The identity read surface (Section 5.6).
@@ -25,8 +49,19 @@ export const identity = new Hono();
  */
 identity.get('/me', async (c) => {
   const app = c.get('app');
-  const clerkUserId = c.req.query('clerk_user_id');
-  const clerkOrgId = c.req.query('clerk_org_id');
+  const userTokenCheck = await checkUserToken(c);
+  if (!userTokenCheck.ok) return userTokenCheck.response;
+  const verified = userTokenCheck.token;
+
+  const clerkUserIdParam = c.req.query('clerk_user_id');
+  const clerkOrgIdParam = c.req.query('clerk_org_id');
+
+  if (verified && clerkUserIdParam && clerkUserIdParam !== verified.clerkUserId) {
+    return c.json({ error: 'clerk_user_id does not match the verified token' }, 403);
+  }
+
+  const clerkUserId = verified?.clerkUserId ?? clerkUserIdParam;
+  const clerkOrgId = clerkOrgIdParam ?? verified?.clerkOrgId;
 
   if (!clerkUserId) return c.json({ error: 'clerk_user_id is required' }, 400);
 
@@ -68,7 +103,16 @@ identity.get('/me', async (c) => {
 /** All organizations a person belongs to, for an app that offers a switcher. */
 identity.get('/me/memberships', async (c) => {
   const app = c.get('app');
-  const clerkUserId = c.req.query('clerk_user_id');
+  const userTokenCheck = await checkUserToken(c);
+  if (!userTokenCheck.ok) return userTokenCheck.response;
+  const verified = userTokenCheck.token;
+
+  const clerkUserIdParam = c.req.query('clerk_user_id');
+  if (verified && clerkUserIdParam && clerkUserIdParam !== verified.clerkUserId) {
+    return c.json({ error: 'clerk_user_id does not match the verified token' }, 403);
+  }
+
+  const clerkUserId = verified?.clerkUserId ?? clerkUserIdParam;
   if (!clerkUserId) return c.json({ error: 'clerk_user_id is required' }, 400);
 
   const user = await findUserByClerkId(clerkUserId);
@@ -169,6 +213,33 @@ identity.get('/permissions/resolve', async (c) => {
       metadata: { reason: 'app_id does not match the calling app', requestedAppId },
     });
     return c.json({ error: 'app_id must match the calling app' }, 403);
+  }
+
+  /**
+   * When a caller proves who it's asking on behalf of (Section 3.3, mobile),
+   * the membership id must actually belong to that person. Without this, a
+   * verified token only proves identity, not that the membership requested
+   * is theirs — an app-trusted caller like core-web has no equivalent check
+   * because it is trusted to only ever ask about its own current user, but a
+   * mobile caller's app key alone cannot be trusted the same way.
+   */
+  const userTokenCheck = await checkUserToken(c);
+  if (!userTokenCheck.ok) return userTokenCheck.response;
+  if (userTokenCheck.token) {
+    const membership = await findMembershipById(membershipId);
+    const owner = membership ? await findUserByClerkId(userTokenCheck.token.clerkUserId) : null;
+    if (!membership || !owner || membership.userId !== owner.id) {
+      await recordAccess({
+        appId: app.id,
+        action: 'permissions:resolve',
+        method: 'read',
+        resource: 'core.app_scoped_permissions',
+        resourceId: membershipId,
+        result: 'denied',
+        metadata: { reason: 'membership does not belong to the verified user' },
+      });
+      return c.json({ error: 'membership does not belong to the verified user' }, 403);
+    }
   }
 
   const permissions = await resolvePermissions(membershipId, app.id);

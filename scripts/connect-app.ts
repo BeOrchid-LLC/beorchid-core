@@ -94,10 +94,10 @@ export async function connectApp(
      * role, one it belongs to, or a superuser — silently wrong in every other
      * environment.
      */
-    const {
-      rows: [{ migrationRole }],
-    } = await client.query<{ migrationRole: string }>('SELECT current_user AS "migrationRole"');
-    const forRole = client.escapeIdentifier(migrationRole);
+    const { rows: currentUserRows } = await client.query<{ migrationRole: string }>(
+      'SELECT current_user AS "migrationRole"',
+    );
+    const forRole = client.escapeIdentifier(currentUserRows[0]!.migrationRole);
     await client.query(
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${forRole} IN SCHEMA ${schemaName}
        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${dbRole}`,
