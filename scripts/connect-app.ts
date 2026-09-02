@@ -79,23 +79,31 @@ export async function connectApp(
     );
 
     /**
-     * FOR ROLE beorchid_migrate is load-bearing, not decoration.
+     * FOR ROLE is load-bearing, not decoration.
      *
      * Default privileges attach to the role that CREATES an object, and without
-     * FOR ROLE they attach to whoever happens to run this statement. Locally
-     * that is a superuser; in staging and production it is beorchid_migrate.
-     * Omitting it means the defaults silently stop applying the moment this runs
-     * somewhere other than a developer's machine, and the symptom appears later,
-     * on the first insert into a table an app migration created.
+     * FOR ROLE they attach to whoever happens to run this statement. This script
+     * is documented to always run as the migration role, so naming that role
+     * explicitly makes the outcome identical regardless of who invokes it.
      *
-     * Naming the role explicitly makes the outcome identical either way.
+     * The migration role's actual name is not fixed across environments (it is
+     * whatever DATABASE_URL_MIGRATE authenticates as there), so it is read from
+     * the connection itself rather than hardcoded. A hardcoded name is correct
+     * only by coincidence in any environment where the role happens to be named
+     * that, and Postgres rejects FOR ROLE for any name that is not the current
+     * role, one it belongs to, or a superuser — silently wrong in every other
+     * environment.
      */
+    const {
+      rows: [{ migrationRole }],
+    } = await client.query<{ migrationRole: string }>('SELECT current_user AS "migrationRole"');
+    const forRole = client.escapeIdentifier(migrationRole);
     await client.query(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE beorchid_migrate IN SCHEMA ${schemaName}
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${forRole} IN SCHEMA ${schemaName}
        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${dbRole}`,
     );
     await client.query(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE beorchid_migrate IN SCHEMA ${schemaName}
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${forRole} IN SCHEMA ${schemaName}
        GRANT USAGE, SELECT ON SEQUENCES TO ${dbRole}`,
     );
 
