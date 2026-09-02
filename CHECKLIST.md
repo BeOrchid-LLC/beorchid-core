@@ -34,6 +34,13 @@ the history of what shipped when is worth keeping.
 - [x] Reconciliation scheduled every 15 minutes as a Coolify Scheduled Task,
       with a machine-readable success line for alerting
 - [x] 65 tests in `core-api` — up from 53 — plus the SDK's 42
+- [x] Webhook failure alerting (§11) — 3 consecutive failures or a >5%
+      failure rate over 15 minutes posts to Slack, with a 15-minute cooldown
+      per alert type. Live testing against the real signed-webhook path
+      surfaced a genuine grant gap (`core_api_rw` was missing `DELETE` on
+      `core.webhook_events`, so a failed webhook stayed permanently claimed
+      and Clerk's retry silently dropped it) — fixed in migration 0011.
+      73 tests in `core-api` now.
 
 ---
 
@@ -92,7 +99,6 @@ just effort.
 - [ ] `postgres_exporter` + alerts (disk, connections, slow queries)
 - [ ] `redis_exporter` + alerts (availability, memory)
 - [ ] Host-level alerts (disk, CPU, memory)
-- [ ] Webhook failure rate alerting
 - [ ] Backup failure **and silence** alerting (§10.4 — silence is the one
       people forget)
 - [ ] Alerts routed to `dev@beorchid.com` and BeOrchid's Slack channel
