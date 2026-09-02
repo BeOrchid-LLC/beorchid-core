@@ -45,6 +45,14 @@ export const config = {
    * every request rather than falling open.
    */
   adminApiKey: optional('ADMIN_API_KEY'),
+
+  /**
+   * Where alerts land (Section 11, confirmed destination in Section 15.1).
+   * Left unset, sendSlackAlert() is a no-op rather than a startup failure.
+   * Alerting is important, but it must never be able to take the service down
+   * by its own absence.
+   */
+  slackWebhookUrl: optional('SLACK_WEBHOOK_URL'),
 } as const;
 
 export const isDevelopment = config.env === 'development';

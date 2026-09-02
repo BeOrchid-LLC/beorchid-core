@@ -4,6 +4,7 @@ import { config } from '../../config.ts';
 import { runtime } from '../../db/pools.ts';
 import { recordAccess } from '../../services/access-log.ts';
 import { invalidateAll, invalidateMembership } from '../../services/permissions.ts';
+import { recordWebhookOutcome } from '../../services/webhook-health.ts';
 
 /**
  * Clerk webhook ingest (Section 4.6).
@@ -88,12 +89,16 @@ clerkWebhook.post('/clerk', async (c) => {
       result: 'allowed',
       metadata: { eventId },
     });
+    // Fire-and-forget: alerting must never add latency to, or a failure mode
+    // onto, the path that just successfully wrote identity data.
+    void recordWebhookOutcome(true);
     return c.json({ status: 'processed', eventId });
   } catch (error) {
     // Leave processed_at null and surface a 5xx so Clerk retries. The row stays
     // claimed, so the retry is recognised as the same event.
     await runtime().query(`DELETE FROM core.webhook_events WHERE event_id = $1`, [eventId]);
     console.error('[webhook] processing failed:', error instanceof Error ? error.message : error);
+    void recordWebhookOutcome(false);
     return c.json({ error: 'processing failed' }, 500);
   }
 });

@@ -78,6 +78,13 @@
       "when": 1788285895518,
       "tag": "0010_app_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788341017000,
+      "tag": "0011_webhook_events_delete_grant",
+      "breakpoints": true
     }
   ]
 }
