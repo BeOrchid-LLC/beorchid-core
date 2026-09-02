@@ -120,7 +120,7 @@ describe('end-user token verification', () => {
       const token = await sign('user_alice');
       const res = await get('/v1/me', { userToken: token });
       assert.equal(res.status, 200);
-      const body = await res.json();
+      const body = (await res.json()) as { user: { clerkUserId: string } };
       assert.equal(body.user.clerkUserId, 'user_alice');
     });
 

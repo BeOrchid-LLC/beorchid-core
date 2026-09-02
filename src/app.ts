@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import { adminAuth } from './middleware/admin-auth.ts';
 import { appAuth } from './middleware/app-auth.ts';
+import { clerkAuth } from './middleware/clerk-auth.ts';
 import { health } from './routes/health.ts';
+import { mobile } from './routes/mobile.ts';
 import { admin } from './routes/v1/admin.ts';
 import { identity } from './routes/v1/identity.ts';
 import { clerkWebhook } from './routes/webhooks/clerk.ts';
@@ -45,9 +47,13 @@ export function createApp(): Hono {
           '/v1/organizations?ids=',
           '/v1/permissions/resolve?membership_id=&app_id=',
         ],
+        mobile: ['/mobile/v1/me', '/mobile/v1/users?ids=', '/mobile/v1/organizations?ids=', '/mobile/v1/permissions/resolve?membership_id='],
         webhooks: ['/webhooks/clerk'],
       },
-      note: '/v1 routes require an app API key. The web reference app runs on port 3100.',
+      note:
+        '/v1 routes require an app API key. /mobile/v1 routes require the caller\'s own ' +
+        'Clerk session token instead (Section 3.3) — no app key, ever. The web reference ' +
+        'app runs on port 3100.',
     }),
   );
 
@@ -71,6 +77,15 @@ export function createApp(): Hono {
   // in core.access_log (Section 6.5).
   app.use('/v1/*', appAuth);
   app.route('/v1', identity);
+
+  /**
+   * Mobile has no server side to hold appAuth's shared secret on (Section
+   * 3.3), so it gets its own mount with its own auth, not a mode of /v1/*.
+   * See routes/mobile.ts for why the calling app is fixed in code here rather
+   * than accepted from the caller.
+   */
+  app.use('/mobile/*', clerkAuth);
+  app.route('/mobile', mobile);
 
   app.notFound((c) => c.json({ error: 'not found' }, 404));
 
