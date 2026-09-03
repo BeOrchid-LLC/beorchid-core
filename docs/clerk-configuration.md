@@ -212,14 +212,34 @@ built.
 ## Checklist
 
 - [ ] Account owned by a BeOrchid address; contributors invited under their own addresses
-- [ ] Organizations enabled on both instances (plan confirmed 30 Aug 2026)
-- [ ] Staging and production instances created separately
-- [ ] Three required attributes enabled, everything else disabled
-- [ ] Three strategies enabled, everything else disabled
-- [ ] Breach detection and minimum length enabled
+- [x] Organizations enabled — confirmed live 3 September 2026. Was off until
+      then; `db:reconcile` returning `organizations=0` was this, not a sync
+      bug — worth remembering if it ever happens again.
+- [ ] Staging and production instances created separately — currently **one**
+      instance serves both (see `../CHECKLIST.md`)
+- [ ] Three required attributes enabled, everything else disabled — not
+      re-verified this session
+- [~] Three strategies enabled, everything else disabled — password confirmed
+      working live. Google credentials received but not pasted in yet;
+      Microsoft not registered; Apple still enabled and needs removing (only
+      three strategies are meant to exist)
+- [ ] Breach detection and minimum length enabled — not re-verified
 - [ ] Google Cloud OAuth client created (production)
 - [ ] Microsoft Entra ID app registered, secret expiry noted (production)
-- [ ] Satellite auto-sync off
-- [ ] Webhook endpoint registered with all eight events
-- [ ] Signing secrets stored in Infisical, per environment
-- [ ] Publishable and secret keys stored in Infisical, per environment
+- [ ] Satellite auto-sync off — not re-verified
+- [x] Webhook endpoint registered — `https://api.id.beorchid.ca/webhooks/clerk`,
+      confirmed live (rejects an unsigned request rather than 404ing)
+- [ ] Signing secrets stored in Infisical, per environment — Infisical isn't
+      set up yet at all; this lives in Coolify's variable store today
+- [ ] Publishable and secret keys stored in Infisical, per environment — same
+      caveat
+
+**Also add, once you have a real build to test with** (not originally on this
+list, but a real gap this session hit): the **Native applications** redirect
+URL allowlist, a separate dashboard page from the Paths/Component paths shown
+above, needed for `core-mobile`'s OAuth flows. It is scoped **per Clerk
+instance** — an entry added while the dashboard is switched to one instance
+does not apply to another, so confirm which instance a build's
+`EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` actually points at (`pk_test_` =
+development, `pk_live_` = production) before assuming an added redirect URL
+will take effect.

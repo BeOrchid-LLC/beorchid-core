@@ -15,7 +15,7 @@ Section references (§) point to
 | | Version | Why |
 |---|---|---|
 | **Node** | 22.x | Specified in §2.2. `core-api/.nvmrc` pins it. |
-| **PostgreSQL** | **15 or newer** | `UNIQUE NULLS NOT DISTINCT` is load-bearing — see [Deviations](core-api/README.md#deviations-from-the-document-and-open-items). Developed against 16.9. |
+| **PostgreSQL** | **15 or newer** | `UNIQUE NULLS NOT DISTINCT` is load-bearing — see [Deviations](README.md#deviations-from-the-document-and-open-items). Developed against 16.9. |
 | **git** | any | — |
 
 Your OS user needs to be a **PostgreSQL superuser**, because setup creates a
@@ -47,10 +47,11 @@ PostgreSQL install.
 
 ## 2. First-time setup
 
-From the repository root:
+From this repository's own root — this repo **is** `core-api` (§9.1); there
+is no nested `core-api/` directory to `cd` into, despite this document once
+being written for a monorepo layout where there was:
 
 ```bash
-cd core-api
 nvm use
 npm install
 ```
@@ -100,7 +101,9 @@ credentials from Infisical.
 npm test
 ```
 
-Expect **24 passing, 0 failing**. Most of these tests pass because an operation
+Expect all passing, 0 failing — see [`CHECKLIST.md`](CHECKLIST.md) for the
+current count, this document doesn't track it since it changes often. Most of
+these tests pass because an operation
 is *denied* — that inversion is the design (§4.1a): the guarantees rest on the
 database making the wrong outcome impossible, not on application code being
 written correctly. A test asserting `42501 insufficient_privilege` is asserting
@@ -123,7 +126,8 @@ Run from `core-api/`.
 | `npm run db:migrate` | Applies pending migrations. Forward-only (§9.3). |
 | `npm run db:generate` | Generates a new migration from changed Drizzle schema. |
 | `npm run db:bootstrap` | Local only — grants `LOGIN` and dev passwords to roles. |
-| `npm run db:connect-app -- <key> "<Name>"` | §13 steps 1–3+7: registers an app, creates its schema, its least-privilege role, and issues its first Core API key. |
+| `npm run db:connect-app -- <key> "<Name>"` | §13 steps 1–3+7: registers an app, creates its schema, its least-privilege role, and issues its first Core API key. See [`docs/add-new-app.md`](docs/add-new-app.md) for the full ten-step process, staging/production included. |
+| `npm run db:reconcile` | Pulls Clerk's current users/organizations/memberships and repairs drift (§4.6 safeguard 3). Needs `CLERK_SECRET_KEY` and Clerk's Organizations feature enabled on the instance — an empty result with `organizations=0` usually means that feature isn't turned on yet, not a bug. |
 | `npm run db:issue-app-key -- <key> [label]` | Issues an additional or rotated key for an already-connected app. |
 | `npm test` | Runs the suite serially against the local database. |
 | `npm run typecheck` | `tsc --noEmit`. |
@@ -210,7 +214,7 @@ Migration `0000` did not run. Check `npm run db:migrate` completed, and that
 
 **`UNIQUE NULLS NOT DISTINCT` syntax error**
 Your PostgreSQL is older than 15. Upgrade — this is not optional, see
-[Deviations](core-api/README.md#deviations-from-the-document-and-open-items).
+[Deviations](README.md#deviations-from-the-document-and-open-items).
 
 **Tests fail with duplicate key errors**
 They share one database and must run serially. `npm test` already sets
@@ -224,15 +228,16 @@ They share one database and must run serially. `npm test` already sets
 ## 8. Not set up yet
 
 Local development is entirely self-contained — nothing below is needed to run
-the tests. All of it is required before anything deploys, all of it must be
-created under **BeOrchid's own ownership** (§12), and all of it has lead time.
+the tests.
 
-| | For | Blocks |
+| | Status | Blocks |
 |---|---|---|
-| **Clerk** | Two instances, staging and production (§8.1) | All authentication work |
-| **Contabo / Coolify** | Hosting for Core API, PostgreSQL, Redis (§9) | Any deployment |
-| **Infisical** | Secrets, scoped per environment (§12) | Any deployment |
-| **Object storage** | Off-host backup destination (§10.1) | Backups and the tested restore |
+| **Clerk** | One instance live and in use. §8.1's *two* separate instances (staging, production) — not yet; one instance currently serves both. | Clean staging/production isolation |
+| **Contabo / Coolify** | Live — Core API is deployed and reachable at `https://api.id.beorchid.ca` | — |
+| **Infisical** | Not set up. Secrets currently live in Coolify's own variable store (§12 names Infisical specifically) | Nothing blocked outright, but this is a confirmed decision not yet honoured |
+| **Object storage** | Not set up | Backups and the tested restore (§10) |
 
-Current progress against the §16 acceptance table is tracked in
-[`core-api/docs/build-log.md`](core-api/docs/build-log.md).
+Current, living progress against the §16 acceptance table is tracked in
+[`CHECKLIST.md`](CHECKLIST.md) — not `docs/build-log.md`, which is a
+point-in-time record of the first build slice and isn't updated after the
+fact.

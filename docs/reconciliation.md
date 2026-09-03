@@ -37,6 +37,17 @@ principle §10.4 applies to backups. Whatever log-based alerting exists can
 watch for this line failing to appear within the expected window, rather than
 only alerting on an explicit failure.
 
+## If it runs but finds nothing
+
+`RECONCILE_OK users=N orgs=0 memberships=0` with a nonzero `users` count is
+not necessarily a sync bug — check first whether Clerk's **Organizations**
+feature is actually enabled on the instance (Clerk Dashboard → Configure →
+Organizations). If it's off, the API call this script makes to list
+organizations is refused outright, not empty because there's nothing there.
+This cost real debugging time on 3 September 2026 before the actual cause
+(the feature had never been turned on) was found — checking that setting
+first is faster than re-reading this script.
+
 ## One limitation worth knowing about now
 
 The script does a full scan through every Clerk user and organization on

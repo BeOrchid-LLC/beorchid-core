@@ -1,5 +1,15 @@
 # Build log — Milestone 2, first slice
 
+> **This is a point-in-time record of the first build slice (2026-08-27) and
+> is not updated after the fact.** Its §16 status table, and Deviations 4 and
+> 5 below, describe decisions later reversed (the monorepo split back into
+> three repositories; `core-mobile` was revived after being withdrawn) — read
+> them as history, not current state. For current status, see
+> [`../CHECKLIST.md`](../CHECKLIST.md). Kept because the reasoning it records
+> — why the database layer went first, how §5.2's enforcement gap was closed,
+> the defect found in the approved DDL — is still accurate and still worth
+> having, even though the status table around it isn't.
+
 **Core schema, resolution safeguards, least-privilege grants**
 
 | | |
